@@ -40,6 +40,11 @@
           在制 <b>{{ dash.processingOrderCount }}</b> 批 · 完成 <b>{{ dash.doneOrderCount }}</b> 批<br />
           设备运行 <b>{{ dash.runningEquipmentCount }}</b> 台 · 故障 <b>{{ dash.faultEquipmentCount }}</b> 台
         </div>
+
+        <router-link class="tf-cleaning-link" :class="{ 'is-active': route.name === 'cleaning' }" to="/cleaning">
+          🧽 设备清洗交接台
+          <small>交接单 · 开工可用性</small>
+        </router-link>
       </div>
     </aside>
 
@@ -142,3 +147,39 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.tf-cleaning-link {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid #c4b99f;
+  border-radius: 6px;
+  background: #f4efe4;
+  color: #2f3327;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.tf-cleaning-link small {
+  font-weight: 400;
+  font-size: 11px;
+  color: #5d6353;
+  margin-top: 2px;
+}
+
+.tf-cleaning-link:hover,
+.tf-cleaning-link.is-active {
+  background: #33691e;
+  border-color: #33691e;
+  color: #fff;
+}
+
+.tf-cleaning-link:hover small,
+.tf-cleaning-link.is-active small {
+  color: #d9e6cd;
+}
+</style>

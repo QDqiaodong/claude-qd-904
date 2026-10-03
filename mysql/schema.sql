@@ -102,13 +102,69 @@ CREATE TABLE IF NOT EXISTS equipment (
     model             VARCHAR(64)          COMMENT '型号',
     capacity_kg       DECIMAL(8,1)         COMMENT '容量 kg',
     current_temp_c    DECIMAL(6,1)         COMMENT '当前温度 ℃',
-    status            VARCHAR(16)          COMMENT 'RUNNING / IDLE / CLEANING / FAULT',
+    status            VARCHAR(16)          COMMENT 'RUNNING / IDLE / CLEANING / PENDING_CONFIRM / FAULT',
     workshop          VARCHAR(32)          COMMENT '所在车间',
     current_batch_no  VARCHAR(32)          COMMENT '当前批次',
     last_maintain_at  DATETIME             COMMENT '最近保养时间',
     PRIMARY KEY (id),
     UNIQUE KEY uk_equip_code (equip_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='制茶设备';
+
+-- ---------------- 5-1. 设备清洗交接单 ----------------
+-- 工序收尾自动形成，带出刚完成的批次与设备；清洗人员登记残留风险、方式、起止时间，
+-- 可标记完成或报故障；负责人确认后设备才恢复可用。
+CREATE TABLE IF NOT EXISTS cleaning_handover (
+    id                  BIGINT      NOT NULL AUTO_INCREMENT,
+    handover_no         VARCHAR(32) NOT NULL COMMENT '交接单号 QX+日期+序号',
+    equip_code          VARCHAR(32) NOT NULL COMMENT '设备编号',
+    equip_name          VARCHAR(64)          COMMENT '设备名称（形成时快照）',
+    equip_type          VARCHAR(16)          COMMENT '设备类型',
+    batch_no            VARCHAR(32)          COMMENT '刚完成的批次号',
+    step_name           VARCHAR(16)          COMMENT '刚结束的工序键',
+    status              VARCHAR(20) NOT NULL COMMENT 'PENDING / IN_PROGRESS / AWAIT_CONFIRM / FAULT_FREEZE / KEEP_AND_REPAIR / CONFIRMED',
+    -- active_key 为存储生成列：未闭环（非 CONFIRMED）时等于 equip_code，确认后置 NULL。
+    -- 配合唯一索引 uk_handover_active，从数据库层保证一台设备至多一张未闭环交接单。
+    active_key          VARCHAR(32) GENERATED ALWAYS AS (CASE WHEN status <> 'CONFIRMED' THEN equip_code ELSE NULL END) STORED COMMENT '未闭环标记',
+    residual_risk       VARCHAR(16)          COMMENT '残留风险 低/中/高',
+    clean_method        VARCHAR(64)          COMMENT '清洗方式',
+    clean_start_time    DATETIME             COMMENT '清洗开始时间',
+    clean_end_time      DATETIME             COMMENT '清洗结束时间',
+    cleaner             VARCHAR(32)          COMMENT '清洗人员',
+    fault_note          VARCHAR(255)         COMMENT '故障描述',
+    fault_after_confirm TINYINT(1)           COMMENT '故障是否发生在负责人确认之后',
+    decision_note       VARCHAR(500)         COMMENT '冲突取舍与开工影响说明',
+    repair_note         VARCHAR(255)         COMMENT '维修 / 复验情况',
+    repairer            VARCHAR(32)          COMMENT '维修 / 复验人员',
+    repaired_at         DATETIME             COMMENT '复验时间',
+    created_by          VARCHAR(32)          COMMENT '形成交接单的工序收尾操作人',
+    confirmed_by        VARCHAR(32)          COMMENT '负责人',
+    confirmed_at        DATETIME             COMMENT '确认时间',
+    created_at          DATETIME    NOT NULL COMMENT '形成时间',
+    updated_at          DATETIME             COMMENT '最近状态变更时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_handover_no (handover_no),
+    UNIQUE KEY uk_handover_active (active_key),
+    KEY idx_handover_equip (equip_code, created_at),
+    KEY idx_handover_batch (batch_no),
+    KEY idx_handover_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='设备清洗交接单';
+
+-- ---------------- 5-2. 清洗交接操作留痕 ----------------
+CREATE TABLE IF NOT EXISTS cleaning_handover_log (
+    id           BIGINT      NOT NULL AUTO_INCREMENT,
+    handover_no  VARCHAR(32) NOT NULL COMMENT '交接单号',
+    equip_code   VARCHAR(32) NOT NULL COMMENT '设备编号',
+    action       VARCHAR(20) NOT NULL COMMENT 'CREATE/START/COMPLETE/REPORT_FAULT/CONFIRM/REOPEN/RECHECK',
+    from_status  VARCHAR(20)          COMMENT '操作前状态',
+    to_status    VARCHAR(20)          COMMENT '操作后状态',
+    operator     VARCHAR(32)          COMMENT '操作人',
+    result       VARCHAR(16)          COMMENT 'EFFECTIVE 已生效 / REJECTED 被驳回',
+    detail       VARCHAR(500)         COMMENT '说明（含驳回原因、取舍与开工影响）',
+    created_at   DATETIME    NOT NULL COMMENT '操作时间',
+    PRIMARY KEY (id),
+    KEY idx_hlog_handover (handover_no, created_at),
+    KEY idx_hlog_equip (equip_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='清洗交接操作留痕';
 
 -- ---------------- 6. 烘房 ----------------
 CREATE TABLE IF NOT EXISTS drying_room (
@@ -370,7 +426,7 @@ INSERT INTO equipment (equip_code, equip_name, equip_type, model, capacity_kg, c
  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 2 DAY),
 ('SQ-03', '3 号微波杀青机', '杀青机', '6CW-40', 50.0, 0.0, 'FAULT', '杀青车间', NULL,
  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 DAY),
-('RN-01', '1 号揉捻机', '揉捻机', '6CR-55', 60.0, 0.0, 'IDLE', '揉捻车间', NULL,
+('RN-01', '1 号揉捻机', '揉捻机', '6CR-55', 60.0, 0.0, 'PENDING_CONFIRM', '揉捻车间', NULL,
  UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 4 DAY),
 ('RN-02', '2 号揉捻机', '揉捻机', '6CR-45', 45.0, 0.0, 'RUNNING', '揉捻车间',
  CONCAT('PC-OOLONG-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'),
@@ -449,3 +505,47 @@ INSERT INTO finished_product (product_no, batch_no, tea_type, grade, packages, n
 (CONCAT('CP', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-006'),
  CONCAT('PC-BLACK-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'RED',
  '三级', 8, 160.00, 'C库-02 货架C2', 7.00, 'STORED', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 30 MINUTE);
+
+-- ---------------- 设备清洗交接单（2 张：1 张等待确认在锁、1 张已确认闭环；旧设备无交接单沿用原状态） ----------------
+INSERT INTO cleaning_handover (handover_no, equip_code, equip_name, equip_type, batch_no, step_name, status,
+                              residual_risk, clean_method, clean_start_time, clean_end_time, cleaner,
+                              created_by, confirmed_by, confirmed_at, created_at, updated_at) VALUES
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'),
+ 'RN-01', '1 号揉捻机', '揉捻机',
+ CONCAT('PC-GREEN-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'ROLL', 'AWAIT_CONFIRM',
+ '中', '人工拆卸清扫',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 50 MINUTE, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 15 MINUTE,
+ '何清洗', '周师傅', NULL, NULL,
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 55 MINUTE, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 15 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-002'),
+ 'HG-02', '2 号箱式烘干机', '烘干机',
+ CONCAT('PC-WHITE-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'DRY', 'CONFIRMED',
+ '低', '高温蒸汽',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 HOUR, UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 HOUR - INTERVAL 20 MINUTE,
+ '何清洗', '陈师傅', '李负责', UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 HOUR,
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 HOUR - INTERVAL 10 MINUTE,
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 HOUR);
+
+-- ---------------- 清洗交接操作留痕（与上面两张单对应） ----------------
+INSERT INTO cleaning_handover_log (handover_no, equip_code, action, from_status, to_status, operator, result, detail, created_at) VALUES
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'RN-01', 'CREATE', NULL, 'PENDING', '周师傅', 'EFFECTIVE',
+ '工序收尾形成交接单：批次绿茶 001 拣剔后设备 RN-01 待清洗，确认前不能用于下一批次',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 55 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'RN-01', 'START', 'PENDING', 'IN_PROGRESS', '何清洗', 'EFFECTIVE',
+ '开始清洗：残留风险中，方式「人工拆卸清扫」，拆揉桶刮除茶垢后清水复冲',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 50 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-001'), 'RN-01', 'COMPLETE', 'IN_PROGRESS', 'AWAIT_CONFIRM', '何清洗', 'EFFECTIVE',
+ '清洗完成，等待负责人确认；确认前设备不能用于下一批次',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 15 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-002'), 'HG-02', 'CREATE', NULL, 'PENDING', '陈师傅', 'EFFECTIVE',
+ '工序收尾形成交接单：白茶 001 干燥后设备 HG-02 待清洗',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 HOUR - INTERVAL 10 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-002'), 'HG-02', 'START', 'PENDING', 'IN_PROGRESS', '何清洗', 'EFFECTIVE',
+ '开始清洗：残留风险低，方式「高温蒸汽」',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 10 HOUR),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-002'), 'HG-02', 'COMPLETE', 'IN_PROGRESS', 'AWAIT_CONFIRM', '何清洗', 'EFFECTIVE',
+ '清洗完成，等待负责人确认',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 HOUR - INTERVAL 20 MINUTE),
+(CONCAT('QX-', DATE_FORMAT(UTC_TIMESTAMP() + INTERVAL 8 HOUR, '%Y%m%d'), '-002'), 'HG-02', 'CONFIRM', 'AWAIT_CONFIRM', 'CONFIRMED', '李负责', 'EFFECTIVE',
+ '负责人确认设备恢复可用，已转为待机，可承接下一批次开工',
+ UTC_TIMESTAMP() + INTERVAL 8 HOUR - INTERVAL 9 HOUR);

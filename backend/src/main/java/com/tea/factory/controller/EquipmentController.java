@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.tea.factory.common.ApiResponse;
 import com.tea.factory.domain.DryingRoom;
 import com.tea.factory.domain.Equipment;
+import com.tea.factory.dto.EquipmentBoardDTO;
 import com.tea.factory.service.EquipmentService;
 
 /**
@@ -32,6 +33,12 @@ public class EquipmentController {
     @GetMapping
     public ApiResponse<List<Equipment>> list() {
         return ApiResponse.success(equipmentService.listEquipment());
+    }
+
+    /** 设备列表（含清洗交接开工可用性口径） */
+    @GetMapping("/board")
+    public ApiResponse<List<EquipmentBoardDTO>> board() {
+        return ApiResponse.success(equipmentService.board());
     }
 
     @GetMapping("/type/{type}")

@@ -150,14 +150,52 @@ public final class Dict {
 
     public static final List<String> EQUIPMENT_TYPES = List.of(EQ_FIX, EQ_ROLL, EQ_FERMENT, EQ_DRY, EQ_AROMA);
 
-    /** 设备状态 */
+    /** 设备状态（PENDING_CONFIRM：清洗完成待负责人确认，期间同样不能开工） */
     private static final Map<String, String> EQUIPMENT_STATUS = Map.of(
             "RUNNING", "运行",
             "IDLE", "待机",
-            "CLEANING", "清洗",
+            "CLEANING", "清洗中",
+            "PENDING_CONFIRM", "待确认",
             "FAULT", "故障");
 
-    public static final List<String> EQUIPMENT_STATUS_KEYS = List.of("RUNNING", "IDLE", "CLEANING", "FAULT");
+    public static final List<String> EQUIPMENT_STATUS_KEYS =
+            List.of("RUNNING", "IDLE", "CLEANING", "PENDING_CONFIRM", "FAULT");
+
+    // ---------------- 清洗交接 ----------------
+    /** 交接单状态 */
+    public static final String HO_PENDING = "PENDING";              // 清洗未开始
+    public static final String HO_IN_PROGRESS = "IN_PROGRESS";      // 清洗进行中
+    public static final String HO_AWAIT_CONFIRM = "AWAIT_CONFIRM";  // 清洗完成，等待负责人确认
+    public static final String HO_FAULT_FREEZE = "FAULT_FREEZE";    // 清洗期间报障：立即冻结，修复后重新清洗
+    public static final String HO_KEEP_AND_REPAIR = "KEEP_AND_REPAIR"; // 确认后报障：保留已确认结果并转维修
+    public static final String HO_CONFIRMED = "CONFIRMED";          // 负责人确认，设备恢复可用
+
+    private static final Map<String, String> HANDOVER_STATUS = Map.of(
+            HO_PENDING, "清洗未开始",
+            HO_IN_PROGRESS, "清洗进行中",
+            HO_AWAIT_CONFIRM, "等待确认",
+            HO_FAULT_FREEZE, "故障冻结",
+            HO_KEEP_AND_REPAIR, "保留结果转维修",
+            HO_CONFIRMED, "已确认恢复");
+
+    /** 未闭环状态：设备一律不能用于下一批次开工 */
+    public static final List<String> HANDOVER_ACTIVE_STATUS =
+            List.of(HO_PENDING, HO_IN_PROGRESS, HO_AWAIT_CONFIRM, HO_FAULT_FREEZE, HO_KEEP_AND_REPAIR);
+
+    /** 残留风险 */
+    public static final String RISK_LOW = "低";
+    public static final String RISK_MIDDLE = "中";
+    public static final String RISK_HIGH = "高";
+    public static final List<String> RESIDUAL_RISKS = List.of(RISK_LOW, RISK_MIDDLE, RISK_HIGH);
+
+    /** 清洗方式 */
+    public static final String CLEAN_WATER = "清水冲洗";
+    public static final String CLEAN_DETERGENT = "食品级清洁剂";
+    public static final String CLEAN_STEAM = "高温蒸汽";
+    public static final String CLEAN_DISASSEMBLE = "人工拆卸清扫";
+    public static final String CLEAN_SPECIAL = "专项清洗";
+    public static final List<String> CLEAN_METHODS =
+            List.of(CLEAN_WATER, CLEAN_DETERGENT, CLEAN_STEAM, CLEAN_DISASSEMBLE, CLEAN_SPECIAL);
 
     // ---------------- 状态 ----------------
     private static final Map<String, String> ORDER_STATUS = Map.of(
@@ -303,6 +341,26 @@ public final class Dict {
         return status == null ? "" : EQUIPMENT_STATUS.getOrDefault(status, status);
     }
 
+    public static String handoverStatusName(String status) {
+        return status == null ? "" : HANDOVER_STATUS.getOrDefault(status, status);
+    }
+
+    public static boolean isValidHandoverStatus(String status) {
+        return status != null && HANDOVER_STATUS.containsKey(status);
+    }
+
+    public static boolean isHandoverActive(String status) {
+        return status != null && HANDOVER_ACTIVE_STATUS.contains(status);
+    }
+
+    public static boolean isValidResidualRisk(String risk) {
+        return risk != null && RESIDUAL_RISKS.contains(risk);
+    }
+
+    public static boolean isValidCleanMethod(String method) {
+        return method != null && CLEAN_METHODS.contains(method);
+    }
+
     public static String orderStatusName(String status) {
         return status == null ? "" : ORDER_STATUS.getOrDefault(status, status);
     }
@@ -332,6 +390,9 @@ public final class Dict {
         vocab.put("defects", DEFECTS);
         vocab.put("equipmentTypes", EQUIPMENT_TYPES);
         vocab.put("equipmentStatus", EQUIPMENT_STATUS);
+        vocab.put("handoverStatus", HANDOVER_STATUS);
+        vocab.put("residualRisks", RESIDUAL_RISKS);
+        vocab.put("cleanMethods", CLEAN_METHODS);
         vocab.put("stepName", STEP_NAME);
         vocab.put("teaFlow", TEA_FLOW);
         vocab.put("minFixTemp", MIN_FIX_TEMP);

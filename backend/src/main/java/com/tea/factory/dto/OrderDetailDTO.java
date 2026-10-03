@@ -26,6 +26,9 @@ public class OrderDetailDTO {
     private String operator;
     private List<ProcessStepRecord> steps = new ArrayList<>();
 
+    /** 最近一道工序收尾形成的清洗交接单号（无设备工序时为空） */
+    private String lastHandoverNo;
+
     public String getBatchNo() {
         return batchNo;
     }
@@ -136,5 +139,13 @@ public class OrderDetailDTO {
 
     public void setSteps(List<ProcessStepRecord> steps) {
         this.steps = steps;
+    }
+
+    public String getLastHandoverNo() {
+        return lastHandoverNo;
+    }
+
+    public void setLastHandoverNo(String lastHandoverNo) {
+        this.lastHandoverNo = lastHandoverNo;
     }
 }

@@ -33,13 +33,16 @@ public class ProcessService {
     private final TeaProcessOrderRepository orderRepository;
     private final ProcessStepRecordRepository stepRepository;
     private final EquipmentRepository equipmentRepository;
+    private final CleaningHandoverService cleaningHandoverService;
 
     public ProcessService(TeaProcessOrderRepository orderRepository,
             ProcessStepRecordRepository stepRepository,
-            EquipmentRepository equipmentRepository) {
+            EquipmentRepository equipmentRepository,
+            CleaningHandoverService cleaningHandoverService) {
         this.orderRepository = orderRepository;
         this.stepRepository = stepRepository;
         this.equipmentRepository = equipmentRepository;
+        this.cleaningHandoverService = cleaningHandoverService;
     }
 
     /** 新建工单，批次号由 Hibernate 自定义生成器生成 */
@@ -127,19 +130,20 @@ public class ProcessService {
         record.setStatus("RUNNING");
 
         if (request.getEquipmentCode() != null && !request.getEquipmentCode().isBlank()) {
+            // 先确认编号确实是制茶设备（摊青工序记录的 TQ-xx 是摊青槽号，不在设备表，保持只记录不上设备锁）。
+            // 命中设备后取行锁再做开工校验：未开始/进行中/等待确认/故障（含未闭环交接单）一律不能开工；
+            // 行锁保证与几乎同时发生的清洗确认 / 报障结论一致，不会读到互相矛盾的状态。
             Equipment equipment = equipmentRepository.findByEquipCode(request.getEquipmentCode());
-            if (equipment == null) {
-                throw new BizException("设备 " + request.getEquipmentCode() + " 不存在");
+            if (equipment != null) {
+                equipment = equipmentRepository.lockByEquipCode(request.getEquipmentCode()).orElseThrow();
+                cleaningHandoverService.assertReadyForNextBatch(equipment);
+                equipment.setStatus("RUNNING");
+                equipment.setCurrentBatchNo(batchNo);
+                if (request.getParamTempC() != null) {
+                    equipment.setCurrentTempC(request.getParamTempC());
+                }
+                equipmentRepository.save(equipment);
             }
-            if ("FAULT".equals(equipment.getStatus())) {
-                throw new BizException("设备 " + equipment.getEquipName() + " 处于故障状态，不能开工");
-            }
-            equipment.setStatus("RUNNING");
-            equipment.setCurrentBatchNo(batchNo);
-            if (request.getParamTempC() != null) {
-                equipment.setCurrentTempC(request.getParamTempC());
-            }
-            equipmentRepository.save(equipment);
         }
         return stepRepository.save(record);
     }
@@ -200,13 +204,14 @@ public class ProcessService {
         record.setStatus("DONE");
         stepRepository.save(record);
 
-        if (record.getEquipmentCode() != null && !record.getEquipmentCode().isBlank()) {
-            Equipment equipment = equipmentRepository.findByEquipCode(record.getEquipmentCode());
-            if (equipment != null) {
-                equipment.setStatus("CLEANING");
-                equipment.setCurrentBatchNo(null);
-                equipmentRepository.save(equipment);
-            }
+        com.tea.factory.domain.CleaningHandover handover = null;
+        if (record.getEquipmentCode() != null && !record.getEquipmentCode().isBlank()
+                && equipmentRepository.findByEquipCode(record.getEquipmentCode()) != null) {
+            // 工序收尾（仅制茶设备）：对设备取行锁，形成清洗交接单（带出刚完成的批次与设备），设备转清洗中。
+            // 下一班能否开工由交接单状态决定，不再只看设备上的“清洗中”标签。
+            Equipment equipment = equipmentRepository.lockByEquipCode(record.getEquipmentCode()).orElseThrow();
+            handover = cleaningHandoverService.createOnFinish(equipment, batchNo, step,
+                    record.getOperator() == null ? order.getOperator() : record.getOperator());
         }
 
         int next = index + 1;
@@ -221,7 +226,11 @@ public class ProcessService {
             order.setCurrentStepIndex(next);
         }
         orderRepository.save(order);
-        return toDetail(order);
+        OrderDetailDTO detail = toDetail(order);
+        if (handover != null) {
+            detail.setLastHandoverNo(handover.getHandoverNo());
+        }
+        return detail;
     }
 
     /** 工序参数校验 */

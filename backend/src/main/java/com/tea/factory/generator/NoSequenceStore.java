@@ -45,6 +45,11 @@ public class NoSequenceStore {
         return store.nextInternal(table, column, prefix, date);
     }
 
+    /** 清洗交接单号：QX + 日期 + 三位序号 */
+    public static String handoverNo() {
+        return next("cleaning_handover", "handover_no", "QX-");
+    }
+
     private String nextInternal(String table, String column, String prefix, String date) {
         AtomicInteger counter = counters.computeIfAbsent(prefix + "|" + date,
                 key -> new AtomicInteger(queryMax(table, column, prefix, date)));

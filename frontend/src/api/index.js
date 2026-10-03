@@ -41,12 +41,25 @@ export const processApi = {
 
 export const equipmentApi = {
   list: () => http.get('/equipment'),
+  board: () => http.get('/equipment/board'),
   byType: (type) => http.get(`/equipment/type/${type}`),
   updateStatus: (code, status, tempC) =>
     http.put(`/equipment/${code}/status`, null, { params: { status, tempC } }),
   rooms: () => http.get('/equipment/rooms'),
   load: (roomNo, params) => http.post(`/equipment/rooms/${roomNo}/load`, null, { params }),
   unload: (roomNo) => http.post(`/equipment/rooms/${roomNo}/unload`)
+}
+
+export const cleaningApi = {
+  list: (status) => http.get('/cleaning/handovers', { params: status ? { status } : {} }),
+  detail: (handoverNo) => http.get(`/cleaning/handovers/${handoverNo}`),
+  board: () => http.get('/cleaning/equipment'),
+  start: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/start`, data),
+  complete: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/complete`, data),
+  fault: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/fault`, data),
+  confirm: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/confirm`, data),
+  reopen: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/reopen`, data),
+  recheck: (handoverNo, data) => http.post(`/cleaning/handovers/${handoverNo}/recheck`, data)
 }
 
 export const evaluationApi = {

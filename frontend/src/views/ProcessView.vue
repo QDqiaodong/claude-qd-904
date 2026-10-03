@@ -102,15 +102,19 @@
       <div class="pc-panel-body">
         <el-form label-width="104px" size="small" class="pc-params">
           <el-form-item label="使用设备">
-            <el-select v-model="form.equipmentCode" clearable filterable style="width: 240px">
+            <el-select v-model="form.equipmentCode" clearable filterable style="width: 300px"
+              :placeholder="equipSelectHint">
               <el-option
                 v-for="e in stepEquipments"
                 :key="e.equipCode"
-                :label="e.equipCode + ' ' + e.equipName + (e.status === 'FAULT' ? '（故障）' : '')"
+                :label="e.equipCode + ' ' + e.equipName + (e.availableForNextBatch ? '（可开工）' : '（' + (e.unavailableReason || '不可开工') + '）')"
                 :value="e.equipCode"
-                :disabled="e.status === 'FAULT'"
+                :disabled="!e.availableForNextBatch"
               />
             </el-select>
+            <span v-if="lockedSelected" class="pc-tip" style="color: #b3261e">
+              {{ lockedSelected.equipCode }}：{{ lockedSelected.unavailableReason }}，不能开工
+            </span>
           </el-form-item>
 
           <template v-for="f in fields" :key="f.key">
@@ -316,8 +320,22 @@ const fields = computed(() => {
 
 const stepEquipments = computed(() => {
   const type = EQ_OF_STEP[selStep.value]
-  if (!type) return equipments.value
+  // 摊青等不使用制茶设备的工序：不走设备开工看板（其设备填的是摊青槽号）
+  if (!type) return []
   return equipments.value.filter((e) => e.equipType === type)
+})
+
+const equipSelectHint = computed(() => {
+  const list = stepEquipments.value
+  if (!list.length) return '该工序暂无可选设备'
+  const avail = list.filter((e) => e.availableForNextBatch).length
+  return avail ? `可选 ${avail} 台` : '本工序设备均不可开工（清洗/故障/占用）'
+})
+
+const lockedSelected = computed(() => {
+  const code = form.equipmentCode
+  const hit = equipments.value.find((e) => e.equipCode === code)
+  return hit && !hit.availableForNextBatch ? hit : null
 })
 
 const TEA_FLOW = {
@@ -385,8 +403,13 @@ function fillForm(step) {
   Object.assign(form, preset || {})
 
   const rec = steps.value.find((s) => s.stepName === step)
+  const stepEquipType = EQ_OF_STEP[step]
   if (rec) {
-    if (rec.equipmentCode) form.equipmentCode = rec.equipmentCode
+    // 仅制茶设备工序带入设备号；摊青记录的是摊青槽号，且已锁定 / 故障设备不自动带入
+    const recEquip = equipments.value.find((e) => e.equipCode === rec.equipmentCode)
+    if (stepEquipType && rec.equipmentCode && (!recEquip || recEquip.availableForNextBatch)) {
+      form.equipmentCode = rec.equipmentCode
+    }
     if (rec.paramTempC != null) form.paramTempC = Number(rec.paramTempC)
     if (rec.paramTemp2C != null) form.paramTemp2C = Number(rec.paramTemp2C)
     if (rec.paramMinutes != null) form.paramMinutes = Number(rec.paramMinutes)
@@ -476,12 +499,18 @@ async function createOrder() {
 
 async function startStep() {
   if (!detail.value) return
+  if (lockedSelected.value) {
+    ElMessage.error(lockedSelected.value.unavailableReason + '，不能开工')
+    return
+  }
   starting.value = true
   try {
     const res = await processApi.start(detail.value.batchNo, payload(selStep.value))
     ElMessage.success(res && res.message ? res.message : '工序已开始')
     await loadDetail()
+    await loadSide()
   } catch (e) {
+    await loadSide()
     ElMessage.error(e.message || '开工失败')
   } finally {
     starting.value = false
@@ -493,9 +522,19 @@ async function finishStep() {
   finishing.value = true
   try {
     const res = await processApi.finish(detail.value.batchNo, payload(selStep.value))
-    ElMessage.success(res && res.message ? res.message : '本工序完成')
     const d = res && res.data ? res.data : null
     await loadDetail()
+    await loadSide()
+    /* 收尾已自动形成清洗交接单，提示下一班交接口径 */
+    if (d && d.lastHandoverNo) {
+      ElMessage({
+        type: 'warning',
+        duration: 6000,
+        message: `本工序完成，已形成清洗交接单 ${d.lastHandoverNo}；设备清洗并经负责人确认前不能接下一批次`
+      })
+    } else {
+      ElMessage.success(res && res.message ? res.message : '本工序完成')
+    }
     /* 结束后自动把面板切到新的当前工序 */
     if (d && typeof d.currentStepIndex === 'number' && d.flow && d.currentStepIndex < d.flow.length) {
       selIndex.value = d.currentStepIndex
@@ -510,8 +549,8 @@ async function finishStep() {
 
 async function loadSide() {
   try {
-    const [e, t] = await Promise.all([equipmentApi.list(), witheringApi.ready()])
-    equipments.value = e && e.data ? e.data : []
+    const [b, t] = await Promise.all([equipmentApi.board(), witheringApi.ready()])
+    equipments.value = b && b.data ? b.data : []
     troughs.value = t && t.data ? t.data : []
   } catch (err) {
     /* 设备/槽位列表失败不影响主流程 */
@@ -531,9 +570,9 @@ watch(
   }
 )
 
-onMounted(() => {
-  loadAll()
-  loadSide()
+onMounted(async () => {
+  await loadSide()
+  await loadAll()
 })
 </script>
 
