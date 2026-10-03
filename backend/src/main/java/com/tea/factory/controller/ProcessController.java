@@ -1,6 +1,8 @@
 package com.tea.factory.controller;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -57,12 +59,19 @@ public class ProcessController {
         return ApiResponse.success("工序已开始", processService.startStep(batchNo, request));
     }
 
-    /** 结束本工序并推进到下一工序 */
+    /** 结束本工序并推进到下一工序；用了设备的同时生成清洗交接单 */
     @PostMapping("/{batchNo}/finish")
-    public ApiResponse<OrderDetailDTO> finish(@PathVariable String batchNo, @RequestBody StepRequest request) {
+    public ApiResponse<Map<String, Object>> finish(@PathVariable String batchNo, @RequestBody StepRequest request) {
         request.setBatchNo(batchNo);
-        OrderDetailDTO detail = processService.finishStep(batchNo, request);
-        return ApiResponse.success("本工序完成，已推进到「" + detail.getCurrentStepName() + "」", detail);
+        ProcessService.FinishStepResult result = processService.finishStep(batchNo, request);
+        Map<String, Object> data = new HashMap<>();
+        data.put("detail", result.getDetail());
+        data.put("handoverNo", result.getHandoverNo());
+        String message = "本工序完成，已推进到「" + result.getDetail().getCurrentStepName() + "」";
+        if (result.getHandoverNo() != null) {
+            message += "；已生成清洗交接单 " + result.getHandoverNo() + "，设备完成清洗并经负责人确认前不得接新批次";
+        }
+        return ApiResponse.success(message, data);
     }
 
     @GetMapping("/{batchNo}/steps")

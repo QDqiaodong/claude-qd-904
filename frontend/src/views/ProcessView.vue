@@ -102,15 +102,18 @@
       <div class="pc-panel-body">
         <el-form label-width="104px" size="small" class="pc-params">
           <el-form-item label="使用设备">
-            <el-select v-model="form.equipmentCode" clearable filterable style="width: 240px">
+            <el-select v-model="form.equipmentCode" clearable filterable style="width: 300px">
               <el-option
                 v-for="e in stepEquipments"
                 :key="e.equipCode"
-                :label="e.equipCode + ' ' + e.equipName + (e.status === 'FAULT' ? '（故障）' : '')"
+                :label="e.equipCode + ' ' + e.equipName + (e.available ? '' : '（' + equipBlockLabel(e) + '）')"
                 :value="e.equipCode"
-                :disabled="e.status === 'FAULT'"
+                :disabled="!e.available"
               />
             </el-select>
+            <div v-if="selectedEquipBlocked" class="pc-equip-warn">
+              ⚠ {{ selectedEquipBlocked }}
+            </div>
           </el-form-item>
 
           <template v-for="f in fields" :key="f.key">
@@ -320,6 +323,17 @@ const stepEquipments = computed(() => {
   return equipments.value.filter((e) => e.equipType === type)
 })
 
+/** 设备不可开工的短标签（与设备看板同口径，由后端 board 接口给出） */
+function equipBlockLabel(e) {
+  return e.blockedReason || '暂不可用'
+}
+
+const selectedEquipBlocked = computed(() => {
+  const e = equipments.value.find((x) => x.equipCode === form.equipmentCode)
+  if (!e || e.available) return ''
+  return e.equipCode + ' ' + (e.equipName || '') + '：' + equipBlockLabel(e) + '，不能用于本工序开工'
+})
+
 const TEA_FLOW = {
   GREEN: ['SPREAD', 'FIX', 'ROLL', 'DRY', 'PICK'],
   RED: ['SPREAD', 'ROLL', 'FERMENT', 'DRY', 'PICK'],
@@ -481,6 +495,7 @@ async function startStep() {
     const res = await processApi.start(detail.value.batchNo, payload(selStep.value))
     ElMessage.success(res && res.message ? res.message : '工序已开始')
     await loadDetail()
+    await loadSide()
   } catch (e) {
     ElMessage.error(e.message || '开工失败')
   } finally {
@@ -494,8 +509,9 @@ async function finishStep() {
   try {
     const res = await processApi.finish(detail.value.batchNo, payload(selStep.value))
     ElMessage.success(res && res.message ? res.message : '本工序完成')
-    const d = res && res.data ? res.data : null
+    const d = res && res.data ? res.data.detail : null
     await loadDetail()
+    await loadSide()
     /* 结束后自动把面板切到新的当前工序 */
     if (d && typeof d.currentStepIndex === 'number' && d.flow && d.currentStepIndex < d.flow.length) {
       selIndex.value = d.currentStepIndex
@@ -510,7 +526,7 @@ async function finishStep() {
 
 async function loadSide() {
   try {
-    const [e, t] = await Promise.all([equipmentApi.list(), witheringApi.ready()])
+    const [e, t] = await Promise.all([equipmentApi.board(), witheringApi.ready()])
     equipments.value = e && e.data ? e.data : []
     troughs.value = t && t.data ? t.data : []
   } catch (err) {
@@ -670,6 +686,13 @@ onMounted(() => {
   margin-left: 10px;
   font-size: 11px;
   color: #b45309;
+}
+
+.pc-equip-warn {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #b3261e;
 }
 
 .pc-actions {

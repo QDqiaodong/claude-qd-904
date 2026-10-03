@@ -36,7 +36,7 @@ public class NoSequenceStore {
     }
 
     /** 生成下一条单号：prefix + yyyyMMdd + "-" + 三位序号 */
-    static String next(String table, String column, String prefix) {
+    public static String next(String table, String column, String prefix) {
         String date = LocalDate.now().format(DATE_FMT);
         NoSequenceStore store = instance();
         if (store == null) {

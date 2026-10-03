@@ -159,6 +159,55 @@ public final class Dict {
 
     public static final List<String> EQUIPMENT_STATUS_KEYS = List.of("RUNNING", "IDLE", "CLEANING", "FAULT");
 
+    // ---------------- 清洗交接 ----------------
+    /** 清洗交接单类型 */
+    public static final String HANDOVER_CLEAN = "CLEAN";
+    public static final String HANDOVER_REPAIR = "REPAIR";
+
+    /** 清洗单状态：未开始（工序收尾刚建单） */
+    public static final String HS_PENDING = "PENDING";
+    /** 清洗中 */
+    public static final String HS_CLEANING = "CLEANING";
+    /** 清洗完成，等待负责人确认 */
+    public static final String HS_WAITING_CONFIRM = "WAITING_CONFIRM";
+    /** 负责人确认，设备恢复可用 */
+    public static final String HS_CONFIRMED = "CONFIRMED";
+    /** 确认前报障：立即冻结，本次清洗作废，转维修 */
+    public static final String HS_FAULT_FROZEN = "FAULT_FROZEN";
+    /** 维修中（确认后报障，保留清洗结论） */
+    public static final String HS_REPAIR = "REPAIR";
+    /** 维修完成，等待负责人复检 */
+    public static final String HS_REPAIRED = "REPAIRED";
+    /** 复检通过，设备恢复可用 */
+    public static final String HS_AVAILABLE = "AVAILABLE";
+
+    /** 进行中（尚未“恢复可用”）的交接状态：存在这些状态的设备一律不能开工 */
+    public static final List<String> HANDOVER_ACTIVE_STATUSES = List.of(
+            HS_PENDING, HS_CLEANING, HS_WAITING_CONFIRM, HS_FAULT_FROZEN, HS_REPAIR, HS_REPAIRED);
+
+    private static final Map<String, String> HANDOVER_STATUS_NAME = Map.ofEntries(
+            Map.entry(HS_PENDING, "清洗未开始"),
+            Map.entry(HS_CLEANING, "清洗中"),
+            Map.entry(HS_WAITING_CONFIRM, "等待确认"),
+            Map.entry(HS_CONFIRMED, "已确认·恢复可用"),
+            Map.entry(HS_FAULT_FROZEN, "故障冻结"),
+            Map.entry(HS_REPAIR, "维修中"),
+            Map.entry(HS_REPAIRED, "维修完成·待复检"),
+            Map.entry(HS_AVAILABLE, "复检通过·恢复可用"));
+
+    /** 冲突取舍：确认前报障立即冻结 / 确认后报障保留清洗转维修 */
+    public static final String RESOLUTION_FREEZE = "FREEZE";
+    public static final String RESOLUTION_KEEP_CLEAN = "KEEP_CLEAN";
+
+    private static final Map<String, String> RESOLUTION_NAME = Map.of(
+            RESOLUTION_FREEZE, "立即冻结（清洗作废）",
+            RESOLUTION_KEEP_CLEAN, "保留已确认清洗结果，转维修");
+
+    public static final List<String> RESIDUE_RISKS = List.of("低", "中", "高");
+
+    public static final List<String> CLEAN_METHODS = List.of(
+            "高压水冲洗", "蒸汽清洗", "人工拆洗", "清洗剂循环", "干法清扫");
+
     // ---------------- 状态 ----------------
     private static final Map<String, String> ORDER_STATUS = Map.of(
             "PROCESSING", "在制",
@@ -303,6 +352,22 @@ public final class Dict {
         return status == null ? "" : EQUIPMENT_STATUS.getOrDefault(status, status);
     }
 
+    public static String handoverStatusName(String status) {
+        return status == null ? "" : HANDOVER_STATUS_NAME.getOrDefault(status, status);
+    }
+
+    public static String resolutionName(String resolution) {
+        return resolution == null ? "" : RESOLUTION_NAME.getOrDefault(resolution, resolution);
+    }
+
+    public static boolean isValidResidueRisk(String risk) {
+        return risk != null && RESIDUE_RISKS.contains(risk);
+    }
+
+    public static boolean isValidCleanMethod(String method) {
+        return method != null && CLEAN_METHODS.contains(method);
+    }
+
     public static String orderStatusName(String status) {
         return status == null ? "" : ORDER_STATUS.getOrDefault(status, status);
     }
@@ -332,6 +397,9 @@ public final class Dict {
         vocab.put("defects", DEFECTS);
         vocab.put("equipmentTypes", EQUIPMENT_TYPES);
         vocab.put("equipmentStatus", EQUIPMENT_STATUS);
+        vocab.put("handoverStatus", HANDOVER_STATUS_NAME);
+        vocab.put("residueRisks", RESIDUE_RISKS);
+        vocab.put("cleanMethods", CLEAN_METHODS);
         vocab.put("stepName", STEP_NAME);
         vocab.put("teaFlow", TEA_FLOW);
         vocab.put("minFixTemp", MIN_FIX_TEMP);

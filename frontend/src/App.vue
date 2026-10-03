@@ -40,6 +40,14 @@
           在制 <b>{{ dash.processingOrderCount }}</b> 批 · 完成 <b>{{ dash.doneOrderCount }}</b> 批<br />
           设备运行 <b>{{ dash.runningEquipmentCount }}</b> 台 · 故障 <b>{{ dash.faultEquipmentCount }}</b> 台
         </div>
+
+        <el-button
+          class="tf-handover-entry"
+          :type="activeKey === 'HANDOVER' ? 'primary' : 'default'"
+          @click="router.push('/handover')"
+        >
+          🧽 设备清洗交接台
+        </el-button>
       </div>
     </aside>
 
@@ -57,6 +65,7 @@ import IntakeView from './views/IntakeView.vue'
 import WitheringView from './views/WitheringView.vue'
 import ProcessView from './views/ProcessView.vue'
 import EvaluationView from './views/EvaluationView.vue'
+import HandoverView from './views/HandoverView.vue'
 import { statsApi } from './api'
 
 const RADIUS = 100
@@ -92,6 +101,7 @@ const activeKey = computed(() => {
   if (!r) return 'INTAKE'
   if (r.name === 'intake') return 'INTAKE'
   if (r.name === 'withering') return 'SPREAD'
+  if (r.name === 'handover') return 'HANDOVER'
   if (r.name === 'evaluation') return 'REVIEW'
   const step = String(r.params?.step || 'FIX').toUpperCase()
   return nodes.some((n) => n.key === step) ? step : 'FIX'
@@ -106,7 +116,7 @@ const pointerAngle = computed(() => activeNode.value.angle + 180)
 const activeStep = computed(() => (activeKey.value === 'FIX' || activeKey.value === 'ROLL' || activeKey.value === 'FERMENT' || activeKey.value === 'DRY' || activeKey.value === 'PICK' ? activeKey.value : 'FIX'))
 const teaTypeName = computed(() => teaTypeNames[teaType.value] || '绿茶')
 
-const views = { intake: IntakeView, withering: WitheringView, process: ProcessView, evaluation: EvaluationView }
+const views = { intake: IntakeView, withering: WitheringView, process: ProcessView, evaluation: EvaluationView, handover: HandoverView }
 const currentView = computed(() => views[route.value?.name] || IntakeView)
 
 /** 已完成节点（当前节点之前的制茶工序） */
@@ -142,3 +152,11 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.tf-handover-entry {
+  width: 100%;
+  margin-top: 12px;
+  letter-spacing: 1px;
+}
+</style>

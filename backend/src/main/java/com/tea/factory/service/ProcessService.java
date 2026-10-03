@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.tea.factory.common.BizException;
 import com.tea.factory.common.Dict;
 import com.tea.factory.domain.Equipment;
+import com.tea.factory.domain.EquipmentCleaningHandover;
 import com.tea.factory.domain.ProcessStepRecord;
 import com.tea.factory.domain.TeaProcessOrder;
 import com.tea.factory.dto.OrderCreateRequest;
@@ -33,13 +34,16 @@ public class ProcessService {
     private final TeaProcessOrderRepository orderRepository;
     private final ProcessStepRecordRepository stepRepository;
     private final EquipmentRepository equipmentRepository;
+    private final CleaningHandoverService cleaningHandoverService;
 
     public ProcessService(TeaProcessOrderRepository orderRepository,
             ProcessStepRecordRepository stepRepository,
-            EquipmentRepository equipmentRepository) {
+            EquipmentRepository equipmentRepository,
+            CleaningHandoverService cleaningHandoverService) {
         this.orderRepository = orderRepository;
         this.stepRepository = stepRepository;
         this.equipmentRepository = equipmentRepository;
+        this.cleaningHandoverService = cleaningHandoverService;
     }
 
     /** 新建工单，批次号由 Hibernate 自定义生成器生成 */
@@ -131,9 +135,9 @@ public class ProcessService {
             if (equipment == null) {
                 throw new BizException("设备 " + request.getEquipmentCode() + " 不存在");
             }
-            if ("FAULT".equals(equipment.getStatus())) {
-                throw new BizException("设备 " + equipment.getEquipName() + " 处于故障状态，不能开工");
-            }
+            // 开工唯一校验：清洗未开始/进行中/等待确认/故障冻结/维修中等一律拦截；
+            // 无交接单的旧设备沿用原状态。结论与设备看板完全同源。
+            cleaningHandoverService.assertCanStartBatch(request.getEquipmentCode());
             equipment.setStatus("RUNNING");
             equipment.setCurrentBatchNo(batchNo);
             if (request.getParamTempC() != null) {
@@ -145,10 +149,10 @@ public class ProcessService {
     }
 
     /**
-     * 结束本工序：校验工艺参数后自动推进到下一工序。
+     * 结束本工序：校验工艺参数后自动推进到下一工序；用了设备的同时生成清洗交接单。
      */
     @Transactional
-    public OrderDetailDTO finishStep(String batchNo, StepRequest request) {
+    public FinishStepResult finishStep(String batchNo, StepRequest request) {
         TeaProcessOrder order = requireOrder(batchNo);
         List<String> flow = Dict.flow(order.getTeaType());
         String step = requiredStep(request.getStepName());
@@ -200,12 +204,13 @@ public class ProcessService {
         record.setStatus("DONE");
         stepRepository.save(record);
 
+        String handoverNo = null;
         if (record.getEquipmentCode() != null && !record.getEquipmentCode().isBlank()) {
             Equipment equipment = equipmentRepository.findByEquipCode(record.getEquipmentCode());
             if (equipment != null) {
-                equipment.setStatus("CLEANING");
-                equipment.setCurrentBatchNo(null);
-                equipmentRepository.save(equipment);
+                // 工序收尾：生成清洗交接单（带出刚完成的批次与设备），设备进入“未清洗完不得开工”锁定
+                EquipmentCleaningHandover handover = cleaningHandoverService.createOnFinishStep(equipment, record);
+                handoverNo = handover == null ? null : handover.getHandoverNo();
             }
         }
 
@@ -221,7 +226,7 @@ public class ProcessService {
             order.setCurrentStepIndex(next);
         }
         orderRepository.save(order);
-        return toDetail(order);
+        return new FinishStepResult(toDetail(order), handoverNo);
     }
 
     /** 工序参数校验 */
@@ -284,8 +289,7 @@ public class ProcessService {
         return String.join("→", names);
     }
 
-    private OrderDetailDTO toDetail(TeaProcessOrder order) {
-        List<String> flow = Dict.flow(order.getTeaType());
+    private OrderDetailDTO toDetail(TeaProcessOrder order) {        List<String> flow = Dict.flow(order.getTeaType());
         OrderDetailDTO detail = new OrderDetailDTO();
         detail.setBatchNo(order.getBatchNo());
         detail.setTeaType(order.getTeaType());
@@ -308,5 +312,24 @@ public class ProcessService {
         detail.setOperator(order.getOperator());
         detail.setSteps(stepRepository.findByBatchNoOrderByStepIndexAsc(order.getBatchNo()));
         return detail;
+    }
+
+    /** 结束工序的返回：最新工单详情 + 本次生成的清洗交接单号（可空，无设备工序不建单） */
+    public static class FinishStepResult {
+        private final OrderDetailDTO detail;
+        private final String handoverNo;
+
+        public FinishStepResult(OrderDetailDTO detail, String handoverNo) {
+            this.detail = detail;
+            this.handoverNo = handoverNo;
+        }
+
+        public OrderDetailDTO getDetail() {
+            return detail;
+        }
+
+        public String getHandoverNo() {
+            return handoverNo;
+        }
     }
 }

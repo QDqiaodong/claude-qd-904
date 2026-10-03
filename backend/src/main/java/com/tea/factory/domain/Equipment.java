@@ -60,4 +60,9 @@ public class Equipment {
 
     @Column(name = "last_maintain_at")
     private LocalDateTime lastMaintainAt;
+
+    /** 乐观锁：设备状态随清洗交接流转，多人同时操作时防止互相覆盖 */
+    @jakarta.persistence.Version
+    @Column(name = "version", nullable = false)
+    private Integer version;
 }
